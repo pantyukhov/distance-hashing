@@ -1,0 +1,141 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # Allow manual triggers
+
+jobs:
+  benchmark:
+    name: Run Performance Benchmarks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run all benchmarks
+        run: |
+          mkdir -p benchmark-results
+
+          echo "Running benchmarks..."
+          go test -bench=. -benchmem -benchtime=3s -timeout=30m \
+            | tee benchmark-results/benchmark-full.txt
+
+          echo "Benchmark run completed!"
+
+      - name: Run UnionFind benchmarks
+        run: |
+          echo "Running UnionFind-specific benchmarks..."
+          go test -bench=BenchmarkUnionFind -benchmem -benchtime=3s \
+            | tee benchmark-results/benchmark-unionfind.txt
+
+      - name: Run Canonical Session benchmarks
+        run: |
+          echo "Running Canonical Session benchmarks..."
+          go test -bench=BenchmarkCanonical -benchmem -benchtime=3s \
+            | tee benchmark-results/benchmark-canonical.txt
+
+      - name: Run High Throughput benchmarks
+        run: |
+          echo "Running High Throughput benchmarks..."
+          go test -bench=Benchmark.*100KRPS -benchmem -benchtime=5s \
+            | tee benchmark-results/benchmark-throughput.txt
+
+      - name: Run Comparison benchmarks
+        run: |
+          echo "Running Algorithm Comparison benchmarks..."
+          go test -bench=BenchmarkComparison -benchmem -benchtime=3s \
+            | tee benchmark-results/benchmark-comparison.txt
+
+      - name: Generate summary report
+        run: |
+          cat > benchmark-results/summary.md << 'EOF'
+          # Performance Benchmark Report
+
+          **Date**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Commit**: ${{ github.sha }}
+          **Branch**: ${{ github.ref_name }}
+          **Runner**: ${{ runner.os }} ${{ runner.arch }}
+          **Go Version**: $(go version)
+
+          ---
+
+          ## Test Results Overview
+
+          The following benchmark suites were executed:
+
+          1. **Full Benchmark Suite** - All benchmarks
+          2. **UnionFind Operations** - Find, Union, Connected operations
+          3. **Canonical Session** - Production-optimized session generation
+          4. **High Throughput** - 100K+ RPS scenarios
+          5. **Algorithm Comparison** - N-Degree Hash vs Canonical Session
+
+          ---
+
+          ## Quick Links
+
+          - [Full Benchmark Results](benchmark-full.txt)
+          - [UnionFind Results](benchmark-unionfind.txt)
+          - [Canonical Session Results](benchmark-canonical.txt)
+          - [Throughput Results](benchmark-throughput.txt)
+          - [Comparison Results](benchmark-comparison.txt)
+
+          ---
+
+          ## Performance Targets
+
+          | Metric | Target | Status |
+          |--------|--------|--------|
+          | Throughput | 100K+ ops/sec | See throughput results |
+          | Latency p99 | < 1ms | See full results |
+          | Memory efficiency | < 1 KB/session | See full results |
+          | Cache hit rate | > 90% | See canonical results |
+
+          ---
+
+          ## System Information
+
+          ```
+          $(go version)
+          $(uname -a)
+          CPU cores: $(nproc)
+          ```
+
+          EOF
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: benchmark-results/
+          retention-days: 30
+
+      - name: Upload benchmark artifacts (alternative name)
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-report
+          path: benchmark-results/
+          retention-days: 90
+
+      - name: Display summary
+        run: |
+          echo "========================================="
+          echo "Performance Benchmark Completed!"
+          echo "========================================="
+          echo ""
+          echo "Artifacts created:"
+          ls -lh benchmark-results/
+          echo ""
+          echo "Download artifacts from GitHub Actions to view detailed results."
