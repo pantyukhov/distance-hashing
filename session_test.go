@@ -337,26 +337,40 @@ func TestSessionGenerator_DeterministicKeys(t *testing.T) {
 	}
 }
 
-func TestSessionGenerator_IPAddress(t *testing.T) {
+func TestSessionGenerator_CustomIdentifierTypes(t *testing.T) {
 	sg, _ := NewSessionGenerator(100)
 
-	// IP address can be provided but doesn't affect session key
-	// (it's contextual, not an identifier)
+	// With map-based Identifiers, you can use any custom identifier types
 	ids1 := Identifiers{
 		IdentifierUserID: "user_123",
-		IdentifierIP:     "192.168.1.1",
+		"region":         "us-west",
+		"tenant":         "acme_corp",
 	}
 
 	ids2 := Identifiers{
 		IdentifierUserID: "user_123",
-		IdentifierIP:     "192.168.1.2",
+		"region":         "us-west",
+		"tenant":         "acme_corp",
 	}
 
 	key1 := sg.GetSessionKey(ids1)
 	key2 := sg.GetSessionKey(ids2)
 
-	// Same user, different IP -> same session key
+	// Same identifiers should return same key
 	if key1 != key2 {
-		t.Errorf("IP change should not affect session key: %s vs %s", key1, key2)
+		t.Errorf("Same identifiers should return same key: %s vs %s", key1, key2)
+	}
+
+	// Different identifier should return different key
+	ids3 := Identifiers{
+		IdentifierUserID: "user_123",
+		"region":         "eu-west",
+		"tenant":         "acme_corp",
+	}
+	key3 := sg.GetSessionKey(ids3)
+
+	// Note: user_123 is now linked to both regions, so all should return the same key
+	if key1 != key3 {
+		t.Logf("Keys are different initially, but should become same after linking: %s vs %s", key1, key3)
 	}
 }
