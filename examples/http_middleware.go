@@ -10,11 +10,11 @@ import (
 )
 
 // Global session generator (initialize once at startup)
-var sessionGen *dh.CanonicalSessionGenerator
+var sessionGen *dh.SessionGenerator
 
 func init() {
 	var err error
-	sessionGen, err = dh.NewCanonicalSessionGenerator(10000)
+	sessionGen, err = dh.NewSessionGenerator(10000)
 	if err != nil {
 		log.Fatalf("Failed to initialize session generator: %v", err)
 	}
