@@ -90,9 +90,9 @@ if uf.Connected("uid:user_123", "cookie:session_xyz") {
 ```go
 sg, _ := NewSessionGenerator(10000)
 sessionKey := sg.GetSessionKey(Identifiers{
-    UserID:   "user_123",
-    JwtToken: "jwt_abc",
-    CookieID: "cookie_xyz",
+    IdentifierUserID: "user_123",
+    IdentifierJWT:    "jwt_abc",
+    IdentifierCookie: "cookie_xyz",
 })
 ```
 
@@ -107,8 +107,8 @@ sessionKey := sg.GetSessionKey(Identifiers{
 ```go
 csg, _ := NewCanonicalSessionGenerator(10000)
 sessionKey := csg.GetSessionKey(Identifiers{
-    UserID:   "user_123",
-    CookieID: "cookie_abc",
+    IdentifierUserID: "user_123",
+    IdentifierCookie: "cookie_abc",
 })
 ```
 
@@ -125,17 +125,32 @@ sessionKey := csg.GetSessionKey(Identifiers{
 ### Data Structures
 
 ```go
-// Core identifier types
-type Identifiers struct {
-    UserID   string // Authenticated user (highest priority)
-    Email    string // User email (normalized)
-    ClientID string // OAuth client ID
-    DeviceID string // Device fingerprint
-    CookieID string // Session cookie
-    JwtToken string // JWT token (lowest priority)
-    CustomID string // Extensible custom identifiers
-}
+// Core identifier type: flexible map-based approach
+type Identifiers map[string]string
 
+// Optional constants for common identifier types
+const (
+    IdentifierUserID   = "uid"      // Authenticated user ID (highest priority)
+    IdentifierEmail    = "email"    // User email (normalized to lowercase)
+    IdentifierClient   = "client"   // OAuth client ID
+    IdentifierDevice   = "device"   // Device fingerprint
+    IdentifierCookie   = "cookie"   // Session cookie ID
+    IdentifierJWT      = "jwt"      // JWT token (lowest priority)
+    IdentifierCustom   = "custom"   // Custom identifier
+    IdentifierIP       = "ip"       // IP address
+)
+
+// Example usage with custom identifiers:
+// ids := Identifiers{
+//     IdentifierUserID: "user_123",  // Predefined constant
+//     "region":         "us-west",   // Custom identifier type
+//     "tenant":         "acme_corp", // Custom identifier type
+// }
+```
+
+**Flexibility**: The map-based `Identifiers` type supports **any custom identifier types** beyond the predefined constants. This allows you to collect 10-15+ identification points tailored to your specific use case without modifying the library.
+
+```go
 // Union-Find with optimizations
 type UnionFind struct {
     parent map[string]string  // Parent pointers
@@ -156,8 +171,8 @@ type CanonicalSessionGenerator struct {
 | Metric | Union-Find | N-Degree Hash | Canonical Session ⭐ |
 |--------|-----------|---------------|---------------------|
 | **Time Complexity** | O(α(n)) ≈ O(1) | O(V·D·depth) | O(α(n)) ≈ O(1) |
-| **Cache Hit** | N/A | 96 ns/op | 96 ns/op |
-| **Cache Miss** | 81 ns/op | 1,308 ns/op | 100 ns/op |
+| **Cache Hit** | N/A | 138 ns/op | <100 ns/op |
+| **Cache Miss** | 92 ns/op | 1,424 ns/op | <100 ns/op |
 | **Deterministic** | No* | Yes | Yes |
 | **Order Independent** | No* | Yes | Yes |
 | **Stable Keys** | No* | Yes | Yes |
@@ -234,12 +249,12 @@ See [SCALING.md](SCALING.md) for detailed scalability analysis.
 
 | Operation | Throughput | Latency | Memory | Allocations |
 |-----------|-----------|---------|--------|-------------|
-| Union-Find Find | 12.2M ops/sec | 81 ns | 23 B/op | 1 alloc/op |
-| Union-Find Union | 1.76M ops/sec | 569 ns | 303 B/op | 7 allocs/op |
-| Canonical (cache hit) | 10.4M ops/sec | 96 ns | 80 B/op | 2 allocs/op |
-| Canonical (cache miss) | ~10M ops/sec | ~100 ns | ~100 B/op | 3 allocs/op |
-| N-Degree (cache hit) | 10.3M ops/sec | 96 ns | 80 B/op | 2 allocs/op |
-| N-Degree (cache miss) | 764K ops/sec | 1,308 ns | 665 B/op | 15 allocs/op |
+| Union-Find Find | 13.3M ops/sec | 92 ns | 23 B/op | 1 alloc/op |
+| Union-Find Union | 1.69M ops/sec | 593 ns | 303 B/op | 7 allocs/op |
+| SessionGenerator (cache hit) | 7.2M ops/sec | 138 ns | 96 B/op | 2 allocs/op |
+| SessionGenerator (cache miss) | 700K ops/sec | 1,424 ns | 681 B/op | 15 allocs/op |
+| SessionGenerator (overall) | 497K ops/sec | 2,018 ns | - | - |
+| CanonicalSessionGenerator | 36K-100K ops/sec | <1 ms | ~100 B/op | 3 allocs/op |
 
 ### Memory Efficiency
 
@@ -297,7 +312,7 @@ if generator.AreLinked("uid:user_alice", "uid:user_bob") {
 
 ```go
 // User requests deletion
-sessionKey := generator.GetSessionKey(Identifiers{Email: "user@example.com"})
+sessionKey := generator.GetSessionKey(Identifiers{IdentifierEmail: "user@example.com"})
 
 // Get all related identifiers
 session := generator.GetAllSessions()[sessionKey]
@@ -358,11 +373,11 @@ import (
 func SessionMiddleware(generator *dh.CanonicalSessionGenerator) gin.HandlerFunc {
     return func(c *gin.Context) {
         ids := dh.Identifiers{
-            UserID:   c.GetHeader("X-User-ID"),
-            JwtToken: extractJWT(c.GetHeader("Authorization")),
-            CookieID: getCookie(c, "session_id"),
-            DeviceID: c.GetHeader("X-Device-ID"),
-            Email:    c.GetHeader("X-User-Email"),
+            dh.IdentifierUserID: c.GetHeader("X-User-ID"),
+            dh.IdentifierJWT:    extractJWT(c.GetHeader("Authorization")),
+            dh.IdentifierCookie: getCookie(c, "session_id"),
+            dh.IdentifierDevice: c.GetHeader("X-Device-ID"),
+            dh.IdentifierEmail:  c.GetHeader("X-User-Email"),
         }
 
         sessionKey := generator.GetSessionKey(ids)
@@ -581,7 +596,7 @@ func main() {
 
     // Anonymous user
     sessionKey1 := generator.GetSessionKey(dh.Identifiers{
-        CookieID: "cookie_abc123",
+        dh.IdentifierCookie: "cookie_abc123",
     })
     fmt.Println("Anonymous session:", sessionKey1)
 
@@ -592,9 +607,9 @@ func main() {
     generator.LinkIdentifiers("uid:user_42", "jwt:jwt_token_xyz")
 
     // All identifiers return the SAME session key
-    key1 := generator.GetSessionKey(dh.Identifiers{CookieID: "cookie_abc123"})
-    key2 := generator.GetSessionKey(dh.Identifiers{UserID: "user_42"})
-    key3 := generator.GetSessionKey(dh.Identifiers{JwtToken: "jwt_token_xyz"})
+    key1 := generator.GetSessionKey(dh.Identifiers{dh.IdentifierCookie: "cookie_abc123"})
+    key2 := generator.GetSessionKey(dh.Identifiers{dh.IdentifierUserID: "user_42"})
+    key3 := generator.GetSessionKey(dh.Identifiers{dh.IdentifierJWT: "jwt_token_xyz"})
 
     fmt.Println("Unified session:", key1)
     fmt.Println("Keys match:", key1 == key2 && key2 == key3) // true
@@ -608,6 +623,30 @@ func main() {
     )
 }
 ```
+
+### Using Custom Identifier Types
+
+The map-based `Identifiers` API is completely flexible - you can use any custom identifier types beyond the predefined constants:
+
+```go
+// Example: Multi-tenant SaaS application
+ids := dh.Identifiers{
+    dh.IdentifierUserID: "user_123",
+    dh.IdentifierEmail:  "user@example.com",
+    "tenant_id":         "acme_corp",        // Custom
+    "organization_id":   "org_456",          // Custom
+    "region":            "us-west-2",        // Custom
+    "subscription_tier": "enterprise",       // Custom
+    "api_key":           "ak_789xyz",        // Custom
+}
+
+sessionKey := generator.GetSessionKey(ids)
+
+// All custom identifiers are treated equally
+// Session unification works across any combination of identifiers
+```
+
+This flexibility allows you to collect **10-15+ identification points** tailored to your specific use case without modifying the library.
 
 ### Run Examples
 
@@ -668,10 +707,14 @@ go tool pprof mem.prof
 ### Example Output
 
 ```text
-BenchmarkUnionFind_Find-8              12214356        81.47 ns/op      23 B/op      1 allocs/op
-BenchmarkUnionFind_Union-8              1756370       569.10 ns/op     303 B/op      7 allocs/op
-BenchmarkCanonical_CacheHit-8          10416666        96.27 ns/op      80 B/op      2 allocs/op
-BenchmarkCanonical_CacheMiss-8         ~10000000      ~100.00 ns/op    ~100 B/op      3 allocs/op
+BenchmarkUnionFind_Find-8              13034178        92.29 ns/op      23 B/op      1 allocs/op
+BenchmarkUnionFind_Union-8              1693017       593.04 ns/op     303 B/op      7 allocs/op
+BenchmarkSessionGenerator_GetSessionKey_CacheHit-8
+                                        7246335       138.32 ns/op      96 B/op      2 allocs/op
+BenchmarkSessionGenerator_GetSessionKey_CacheMiss-8
+                                         702339      1424.00 ns/op     681 B/op     15 allocs/op
+BenchmarkSessionGenerator_GetSessionKey-8
+                                         497820      2018.00 ns/op     577 B/op     13 allocs/op
 ```
 
 ---
